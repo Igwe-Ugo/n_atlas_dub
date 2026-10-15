@@ -66,8 +66,8 @@ class _GenerateVoiceScreenState extends ConsumerState<GenerateVoiceScreen> {
     final state = ref.watch(localizationProvider);
     final isAudioReady =
         _generatedForCurrentSelection &&
-        state.audioId != null &&
-        state.audioId!.isNotEmpty;
+        state.audioBytes != null &&
+        state.audioBytes!.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -167,7 +167,7 @@ class _GenerateVoiceScreenState extends ConsumerState<GenerateVoiceScreen> {
                         unawaited(_audioPlayer.stop());
                         ref
                             .read(localizationProvider.notifier)
-                            .clearGeneratedSpeech();
+                            .clearGeneratedAudio();
                       },
               ),
               const Padding(
@@ -189,38 +189,21 @@ class _GenerateVoiceScreenState extends ConsumerState<GenerateVoiceScreen> {
                         await ref
                             .read(localizationProvider.notifier)
                             .generateSpeech(
-                              widget.targetLanguage,
-                              state.translation ?? '',
-                              widget.voice,
-                              _speechSpeed,
+                              speed: _speechSpeed,
+                              voice: widget.voice,
                             );
                         final result = ref.read(localizationProvider);
-                        final audioId = result.audioId;
                         final audioBytes = result.audioBytes;
                         if (mounted &&
                             result.error == null &&
-                            audioId != null &&
-                            audioId.isNotEmpty) {
+                            audioBytes != null &&
+                            audioBytes.isNotEmpty) {
                           try {
-                            if (audioBytes == null || audioBytes.isEmpty) {
-                              throw Exception(
-                                'The speech response contained no audio data.',
-                              );
-                            }
-                            final extension = switch (result.audioContentType
-                                ?.split(';')
-                                .first) {
-                              'audio/wav' || 'audio/x-wav' => 'wav',
-                              'audio/ogg' => 'ogg',
-                              'audio/mp4' || 'audio/m4a' => 'm4a',
-                              _ => 'mp3',
-                            };
                             _audioTempDirectory ??= await Directory.systemTemp
                                 .createTemp('natlas_generated_audio_');
                             final audioFile = File(
                               '${_audioTempDirectory!.path}${Platform.pathSeparator}'
-                              'speech-${DateTime.now().microsecondsSinceEpoch}.'
-                              '$extension',
+                              'speech-${DateTime.now().microsecondsSinceEpoch}.wav',
                             );
                             await audioFile.writeAsBytes(audioBytes);
                             await _audioPlayer.setFilePath(audioFile.path);
@@ -353,9 +336,7 @@ class _GenerateVoiceScreenState extends ConsumerState<GenerateVoiceScreen> {
 
               // Continue Button
               ElevatedButton(
-                onPressed: isAudioReady
-                    ? _openPreview
-                    : null,
+                onPressed: isAudioReady ? _openPreview : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF2C248A),
                   disabledBackgroundColor: Colors.grey.shade300,

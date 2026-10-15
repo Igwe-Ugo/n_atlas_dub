@@ -1,65 +1,60 @@
-# N-ATLAS Video Localizer: User Guide
+# N-ATLaS Dub: User Guide
 
-This guide explains how to turn an English video into a video with translated speech using the app. No video-editing experience is needed.
+Use the app to turn an English MP4 into a video with reviewed Nigerian language speech and subtitles. No video-editing experience is needed.
 
 ## Before you start
 
 - Have an internet connection.
-- Make sure the N-ATLAS backend is running. The app sends the video to this server for transcription, translation, voice generation, and video rendering.
-- If you were given a backend URL and API key, enter them in **Settings** before starting. Use the complete URL, including `https://`, and the matching key. Tap **Save Changes**.
-- Choose an English video. The upload screen lists MP4, MOV, and AVI files and a 200 MB maximum. Videos longer than one minute are shortened automatically; the app keeps the beginning, including only the first minute of audio.
+- Prepare an MP4 smaller than 100 MB. Videos can be up to 90 seconds; longer uploads are trimmed by the server to 90 seconds.
+- Agree to video processing on the upload screen. The app cannot upload without your consent.
+- The first request after the server has been idle may take a few minutes while its GPU worker wakes up. Keep the app open while each stage is processing.
 
-Saving settings only stores them on your device. It does not confirm that the backend is online. If the backend uses a temporary tunnel URL, ask its operator for the current URL when the server restarts.
+The app is configured to use `https://natlas-dub.onrender.com`. Open **Settings** only if you need a different server URL or the server operator has enabled an API key.
 
-## Make a localized video
+## Make a dubbed video
 
-### 1. Start
+### 1. Upload your video
 
-Open the app and tap **Start Now**.
+Tap **Start Now**, accept the processing consent, and choose your MP4. The app checks that the GPU worker is online, uploads the video, and shows the job ID and upload result. If the clip is longer than 90 seconds, the server trims it.
 
-### 2. Upload your video
+### 2. Choose a language and voice
 
-On **Upload Video**, tap the upload area and choose a video. Wait for the upload confirmation, then tap **Continue**.
+Choose **Yoruba**, **Hausa**, or **Igbo**, then select a female or male voice. You can optionally enter names or brand terms, separated by commas, that should stay unchanged. Tap **Continue** to start transcription and translation. This background step may take about a minute for a one-minute clip.
 
-### 3. Choose a language and voice
+### 3. Review translated segments
 
-On **Select Language**, choose the language you want:
+The review screen shows each original sentence beside its translated segment. Edit wording as needed, then tap **Save & approve** for individual segments, or tap **Approve All & Continue to Voice** to save all edits and approve the full script.
 
-- Yoruba
-- Igbo
-- Hausa
-- Nigerian English
+### 4. Generate and listen to the voice
 
-Choose a female or male voice, then tap **Continue**. The app sends your video for speech transcription and translates the transcript into the selected language. Wait for both steps to finish.
+Choose a speech speed from 0.65× to 1.25× and tap **Generate Voice**. Voice generation can take four to five minutes for a one-minute clip. When it finishes, use the play button to listen, then tap **Continue**.
 
-### 4. Review the translation
+### 5. Render and preview the video
 
-Read the translated text on the translation screen. You can edit it directly. Tap **Regenerate Translation** if you want the system to make a new translation. When the wording is ready, tap **Continue**.
+Choose whether to show subtitles, select their top or bottom position, and optionally enable background audio. The app renders the final video and downloads it for preview. Rendering usually takes about 13 seconds after voice generation is complete.
 
-### 5. Generate and listen to the voice
+### 6. Download your files
 
-On **Generate Voice**, choose a speech speed with the slider, then tap **Generate Voice**. When generation finishes, tap the play button to listen. Adjust the speed and generate again if you want another version. Tap **Continue** when you are happy with the voice.
+On **Export Video**, choose any files you want to keep:
 
-### 6. Wait for the finished video and preview it
+- Final MP4 video
+- Dubbed WAV audio
+- SRT subtitles
+- Original uploaded video
 
-The **Preview Localized Video** screen starts rendering when it opens. A progress message appears while the app creates and downloads the finished video. When the player appears, use its play button to review the generated video.
+Jobs are temporary and can disappear when the GPU worker sleeps after inactivity. Download anything you need as soon as it is ready.
 
-Tap **Continue to Export** when you are ready to save it. Tap **Render Video Again** if a render failed or you discarded the preview. **Delete Video** asks for confirmation before removing the current selection or downloaded preview from the app.
+## Settings and About
 
-### 7. Save the video
+The home screen’s gear opens **API Settings**. The live server URL is filled in by default. Leave the API key blank unless the server operator enables authentication and gives you a key; when configured, the app sends it in the `X-API-Key` header on `/api` requests.
 
-On **Export Video**, tap **Download Video**. Choose a file name and location in the save dialog. The app saves the localized MP4 to that location and shows a confirmation when it is done.
-
-Tap **Back to Video Preview** to return to the player. **Delete Preview** removes the downloaded preview from the device and returns to the preview screen; it does not delete the backend's copy. Tap **Create Another Video** to clear the current workflow and start over.
-
-## Settings
-
-Tap the gear icon on the home screen to open **API Settings**. Enter the backend's base URL and API key, then tap **Save Changes**. These settings are saved on the device and apply to new requests. Ask the backend operator for the correct values; do not guess them.
+The home screen’s information button opens **About N-ATLaS Dub**.
 
 ## If something goes wrong
 
-- **The app cannot connect:** Check the internet connection and confirm that the backend is running. If it uses a temporary tunnel, check that the saved URL is the current, complete URL.
-- **401 Unauthorized:** The saved API key may not match the backend. Re-enter the key provided by the backend operator.
-- **404 Job not found:** The backend may have restarted or lost the job while it was processing. Start the localization again while the backend is available.
-- **A step is still working:** Keep the app open and wait for its progress message to finish before continuing.
+- **The worker is offline or waking up:** Wait briefly, then try again. The first job after idle may take about three minutes to warm up.
+- **413, video too large:** Choose an MP4 under 100 MB.
+- **429, too many uploads:** Wait a few minutes before retrying.
+- **502 or 503:** The GPU worker may be waking up. Wait briefly and retry.
+- **404, job not found:** The temporary job may have expired after the worker went idle. Start again and download results promptly.
 

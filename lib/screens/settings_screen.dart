@@ -57,9 +57,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -108,8 +108,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Enter the API base URL and API key for your backend. '
-                    'Settings are saved on this device.',
+                    'The live N-ATLaS Dub server is configured by default. '
+                    'An API key is optional and only needed if authentication is enabled.',
                     style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
                   ),
                   const SizedBox(height: 20),
@@ -119,7 +119,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     autocorrect: false,
                     decoration: InputDecoration(
                       labelText: 'API Base URL',
-                      hintText: 'https://api.example.com',
+                      hintText: NAtlasApiService.defaultBaseUrl,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -141,15 +141,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     autocorrect: false,
                     enableSuggestions: false,
                     decoration: InputDecoration(
-                      labelText: 'API Key (X-API-Key)',
-                      hintText: 'Enter your API key',
+                      labelText: 'API Key (optional)',
+                      hintText: 'Only needed when the server enables a key',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    validator: (value) => (value ?? '').trim().isEmpty
-                        ? 'Enter an API key.'
-                        : null,
+                    validator: (_) => null,
                   ),
                   const SizedBox(height: 30),
                   ElevatedButton(

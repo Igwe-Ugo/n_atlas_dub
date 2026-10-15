@@ -15,6 +15,72 @@ class ExportVideoScreen extends ConsumerStatefulWidget {
 }
 
 class _ExportVideoScreenState extends ConsumerState<ExportVideoScreen> {
+  Future<void> _saveMedia(String mediaType) async {
+    final extension = mediaType == 'srt'
+        ? 'srt'
+        : mediaType == 'audio'
+        ? 'wav'
+        : 'mp4';
+    final suffix = switch (mediaType) {
+      'audio' => 'audio',
+      'srt' => 'subtitles',
+      'source' => 'original',
+      _ => 'video',
+    };
+    final fileName =
+        '${widget.targetLanguage.toLowerCase()}_$suffix.$extension';
+    final bytes = await ref
+        .read(localizationProvider.notifier)
+        .fetchJobMedia(mediaType);
+    if (!mounted) return;
+    if (bytes == null) {
+      final error = ref.read(localizationProvider).error;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Download failed: $error')));
+      return;
+    }
+
+    final saveLocation = await FilePicker.saveFile(
+      dialogTitle: 'Save $suffix',
+      fileName: fileName,
+      bytes: Uint8List.fromList(bytes),
+      mimeType: switch (mediaType) {
+        'audio' => 'audio/wav',
+        'srt' => 'text/plain',
+        _ => 'video/mp4',
+      },
+    );
+    if (saveLocation == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Saved $fileName successfully.'),
+        duration: const Duration(seconds: 8),
+      ),
+    );
+  }
+
+  Widget _downloadButton(
+    LocalizationState state, {
+    required String mediaType,
+    required String label,
+    required IconData icon,
+  }) => OutlinedButton.icon(
+    onPressed: state.isLoading ? null : () => _saveMedia(mediaType),
+    icon: state.isLoading && mediaType == 'video'
+        ? const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : Icon(icon),
+    label: Text(state.isLoading ? state.statusMessage : label),
+    style: OutlinedButton.styleFrom(
+      minimumSize: const Size(double.infinity, 44),
+      foregroundColor: const Color(0xFF2C248A),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(localizationProvider);
@@ -143,70 +209,32 @@ class _ExportVideoScreenState extends ConsumerState<ExportVideoScreen> {
 
               const Spacer(),
 
-              // Download Button saves the result, reusing the preview download.
-              ElevatedButton.icon(
-                onPressed: state.isLoading || state.previewVideoPath == null
-                    ? null
-                    : () async {
-                        final savePath = await FilePickerPlatform.instance
-                            .saveFile(
-                              dialogTitle: 'Save localized video',
-                              fileName: localizedVideoName,
-                              bytes: Uint8List(0),
-                              mimeType: 'video/mp4',
-                            );
-                        if (savePath == null || !mounted) return;
-
-                        final String outputPath = savePath.toFilePath();
-
-                        final saved = await ref
-                            .read(localizationProvider.notifier)
-                            .downloadFinalResult(outputPath);
-                        if (!mounted) return;
-
-                        final result = ref.read(localizationProvider);
-                        if (saved) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Video saved to: $outputPath'),
-                              duration: const Duration(seconds: 8),
-                            ),
-                          );
-                          return;
-                        }
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Download failed: ${result.error ?? 'No completed video was returned.'}',
-                            ),
-                            duration: const Duration(seconds: 8),
-                          ),
-                        );
-                      },
-                icon: state.isLoading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Color(0xFF2C248A),
-                        ),
-                      )
-                    : const Icon(Icons.download, color: Colors.white, size: 20),
-                label: Text(
-                  state.isLoading
-                      ? 'Downloading...'
-                      : state.previewVideoPath != null
-                      ? 'Download Video'
-                      : 'Preview Video First',
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2C248A),
-                  minimumSize: const Size(double.infinity, 52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
+              _downloadButton(
+                state,
+                mediaType: 'video',
+                label: 'Download Final Video',
+                icon: Icons.video_file,
+              ),
+              const SizedBox(height: 8),
+              _downloadButton(
+                state,
+                mediaType: 'audio',
+                label: 'Download Dubbed Audio (WAV)',
+                icon: Icons.audio_file,
+              ),
+              const SizedBox(height: 8),
+              _downloadButton(
+                state,
+                mediaType: 'srt',
+                label: 'Download Subtitles (SRT)',
+                icon: Icons.subtitles,
+              ),
+              const SizedBox(height: 8),
+              _downloadButton(
+                state,
+                mediaType: 'source',
+                label: 'Download Original Video',
+                icon: Icons.download,
               ),
               const SizedBox(height: 10),
 

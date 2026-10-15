@@ -14,13 +14,20 @@ class _SelectLanguageScreenState extends ConsumerState<SelectLanguageScreen> {
   // Default selected target language
   String selectedLanguage = 'Yoruba';
   String? selectedVoice;
+  final TextEditingController _protectedTermsController =
+      TextEditingController();
 
   final List<Map<String, String>> languages = [
     {'name': 'Yoruba', 'native': 'Èdè Yorùbá'},
     {'name': 'Igbo', 'native': 'Asụsụ Igbo'},
     {'name': 'Hausa', 'native': 'Harshen Hausa'},
-    {'name': 'Nigerian English', 'native': 'Nigerian-accented English'},
   ];
+
+  @override
+  void dispose() {
+    _protectedTermsController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -198,9 +205,20 @@ class _SelectLanguageScreenState extends ConsumerState<SelectLanguageScreen> {
                   Expanded(child: _buildVoiceOption('male', 'Male')),
                 ],
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _protectedTermsController,
+                decoration: InputDecoration(
+                  labelText: 'Names to keep unchanged (optional)',
+                  hintText: 'Moniepoint, product names',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
               const SizedBox(height: 16),
 
-              // Continue Button -> Triggers transcription & passes selected language for translation
+              // Start the background processing job and wait for review segments.
               ElevatedButton(
                 onPressed: selectedVoice == null || isLoading
                     ? null
@@ -209,38 +227,32 @@ class _SelectLanguageScreenState extends ConsumerState<SelectLanguageScreen> {
                           localizationProvider.notifier,
                         );
 
-                        // 1. Transcribe video via backend
-                        await notifier.transcribeVideo();
+                        final languageCode = switch (selectedLanguage) {
+                          'Yoruba' => 'yo',
+                          'Hausa' => 'ha',
+                          'Igbo' => 'ig',
+                          _ => throw StateError('Unsupported language.'),
+                        };
+                        await notifier.startProcessing(
+                          targetLanguage: languageCode,
+                          voice: selectedVoice!,
+                          protectedTerms: _protectedTermsController.text
+                              .split(',')
+                              .map((term) => term.trim())
+                              .where((term) => term.isNotEmpty)
+                              .toList(),
+                        );
                         if (!context.mounted) return;
 
-                        var workflowState = ref.read(localizationProvider);
+                        final workflowState = ref.read(localizationProvider);
                         if (workflowState.error != null ||
-                            (workflowState.transcription?.trim().isEmpty ??
-                                true)) {
+                            workflowState.stage != 'review' ||
+                            workflowState.segments.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
                                 workflowState.error ??
-                                    'No transcript was returned for this video.',
-                              ),
-                            ),
-                          );
-                          return;
-                        }
-
-                        // 2. Translate text using the chosen target language parameter
-                        await notifier.translateText(selectedLanguage);
-                        if (!context.mounted) return;
-
-                        workflowState = ref.read(localizationProvider);
-                        if (workflowState.error != null ||
-                            (workflowState.translation?.trim().isEmpty ??
-                                true)) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                workflowState.error ??
-                                    'No translation was returned.',
+                                    'The server did not return segments for review.',
                               ),
                             ),
                           );

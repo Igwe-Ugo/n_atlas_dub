@@ -4,29 +4,24 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'models.dart';
 
 class NAtlasApiService {
   late final Dio _dio;
-  static const String defaultBaseUrl =
-      'https://setup-attraction-met-columnists.trycloudflare.com';
-
-  // Fix: Use proper string keys for SharedPreferences storage lookup
+  static const String defaultBaseUrl = 'https://natlas-dub.onrender.com';
   static const String _baseUrlPreference = 'pref_base_url';
   static const String _apiKeyPreference = 'pref_api_key';
 
-  static const String defaultApiKey = 'n-atlas-secure-key-2026';
-
   String baseUrl = defaultBaseUrl;
-  String apiKey = defaultApiKey;
+  String apiKey = '';
   late final Future<void> ready;
 
   NAtlasApiService() {
     _dio = Dio(
       BaseOptions(
         baseUrl: baseUrl,
-        connectTimeout: const Duration(seconds: 180),
-        receiveTimeout: const Duration(seconds: 180),
+        connectTimeout: const Duration(seconds: 300),
+        sendTimeout: const Duration(seconds: 300),
+        receiveTimeout: const Duration(seconds: 300),
         headers: {'Accept': 'application/json'},
       ),
     );
@@ -37,10 +32,10 @@ class NAtlasApiService {
           try {
             await ready;
             options.baseUrl = baseUrl;
-            if (apiKey.isEmpty) {
-              options.headers.remove('X-API-Key');
-            } else {
+            if (options.path.startsWith('/api/') && apiKey.isNotEmpty) {
               options.headers['X-API-Key'] = apiKey;
+            } else {
+              options.headers.remove('X-API-Key');
             }
             handler.next(options);
           } catch (error) {
@@ -53,19 +48,24 @@ class NAtlasApiService {
 
   Future<void> _loadCredentials() async {
     final preferences = await SharedPreferences.getInstance();
-    baseUrl = preferences.getString(_baseUrlPreference) ?? defaultBaseUrl;
-    // Fix: Fall back to defaultApiKey if no saved key exists yet
-    apiKey = preferences.getString(_apiKeyPreference) ?? defaultApiKey;
+    final savedBaseUrl = preferences.getString(_baseUrlPreference);
+    // These were temporary tunnel defaults in older builds. Move existing
+    // installs to the live API while retaining an explicitly configured URL.
+    baseUrl =
+        savedBaseUrl == null ||
+            savedBaseUrl.contains('trycloudflare.com') ||
+            savedBaseUrl.contains('trycloudflare.co')
+        ? defaultBaseUrl
+        : savedBaseUrl;
+    final savedKey = preferences.getString(_apiKeyPreference) ?? '';
+    // Older app builds shipped with this default key. The live mobile API has
+    // no authentication enabled, so don't send that obsolete value.
+    apiKey = savedKey == 'n-atlas-secure-key-2026' ? '' : savedKey;
     _applyCredentials();
   }
 
   void _applyCredentials() {
     _dio.options.baseUrl = baseUrl;
-    if (apiKey.isEmpty) {
-      _dio.options.headers.remove('X-API-Key');
-    } else {
-      _dio.options.headers['X-API-Key'] = apiKey;
-    }
   }
 
   Future<void> updateCredentials(String url, String key) async {
@@ -78,9 +78,6 @@ class NAtlasApiService {
       throw const FormatException(
         'Enter a valid API base URL starting with http:// or https://.',
       );
-    }
-    if (key.trim().isEmpty) {
-      throw const FormatException('Enter an API key.');
     }
 
     final preferences = await SharedPreferences.getInstance();
@@ -97,8 +94,10 @@ class NAtlasApiService {
     _applyCredentials();
   }
 
-  String _apiLanguage(String language) {
-    return language == 'Nigerian English' ? 'English' : language;
+  Map<String, dynamic> _asMap(dynamic value, String endpoint) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    throw Exception('$endpoint returned an unexpected response.');
   }
 
   String _describeDioError(String endpoint, DioException error) {
@@ -106,159 +105,189 @@ class NAtlasApiService {
     final responseBody = responseData is List<int>
         ? utf8.decode(responseData, allowMalformed: true)
         : responseData?.toString();
-    final responseSnippet = responseBody == null || responseBody.isEmpty
+    final snippet = responseBody == null || responseBody.isEmpty
         ? ''
         : ': ${responseBody.substring(0, responseBody.length > 1000 ? 1000 : responseBody.length)}';
-    final description =
-        '$endpoint failed with HTTP ${error.response?.statusCode ?? 'no response'}'
-        '$responseSnippet';
-    if (kDebugMode) {
-      debugPrint('$description (type=${error.type}, message=${error.message})');
-    }
+    final statusCode = error.response?.statusCode;
+    final description = switch (statusCode) {
+      413 => 'The video is too large. Choose an MP4 smaller than 100 MB.',
+      429 =>
+        'Too many uploads came from this network. Wait a few minutes and try again.',
+      502 ||
+      503 => 'The GPU worker is offline or waking up. Wait briefly and retry.',
+      404 => 'This job could not be found. Jobs expire when the worker sleeps.',
+      _ =>
+        error.response == null
+            ? '$endpoint failed: ${error.message ?? error.type.name}'
+            : '$endpoint failed with HTTP $statusCode$snippet',
+    };
+    if (kDebugMode) debugPrint(description);
     return description;
   }
 
-  // 1. POST /upload (Video)
-  Future<String> uploadVideo(File file) async {
-    String fileName = file.path.split('/').last;
-    FormData formData = FormData.fromMap({
+  Future<Map<String, dynamic>> checkHealth() async {
+    try {
+      final response = await _dio.get('/health');
+      return _asMap(response.data, 'GET /health');
+    } on DioException catch (error) {
+      throw Exception(_describeDioError('GET /health', error));
+    }
+  }
+
+  Future<Map<String, dynamic>> uploadVideo(
+    File file, {
+    required String testerName,
+    required String testerEmail,
+    required int trimToSeconds,
+  }) async {
+    final fileName = file.uri.pathSegments.isEmpty
+        ? 'video.mp4'
+        : file.uri.pathSegments.last;
+    final fields = <String, dynamic>{
       'file': await MultipartFile.fromFile(file.path, filename: fileName),
-    });
-    final response = await _dio.post('/upload', data: formData);
-    return response.data['video_id'] ?? response.data['id'] ?? '';
-  }
-
-  // 2. POST /transcribe/{video_id}
-  Future<String> transcribeVideo(String videoId) async {
-    final response = await _dio.post('/transcribe/$videoId');
-    return response.data['transcription'] ?? response.data['text'] ?? '';
-  }
-
-  // 3. POST /translate
-  Future<String> translateText(String text, String language) async {
-    final response = await _dio.post(
-      '/translate',
-      data: TranslationRequest(
-        text: text,
-        language: _apiLanguage(language),
-      ).toJson(),
-    );
-    return response.data['translated_text'] ??
-        response.data['translation'] ??
-        '';
-  }
-
-  // 4. POST /generate-speech (Directly returns audio file bytes and handles everything)
-  Future<Map<String, dynamic>> startSpeechGeneration(
-    String text,
-    String language,
-    String voice,
-    double speed,
-  ) async {
-    final requestData = SpeechRequest(
-      text: text,
-      language: _apiLanguage(language),
-      voice: voice,
-      speed: speed,
-    ).toJson();
+      'consent': 'true',
+      'trim_to_seconds': trimToSeconds.toString(),
+    };
+    if (testerName.trim().isNotEmpty) fields['tester_name'] = testerName.trim();
+    if (testerEmail.trim().isNotEmpty) {
+      fields['tester_email'] = testerEmail.trim();
+    }
 
     try {
-      final response = await _dio.post<List<int>>(
-        '/generate-speech',
-        data: requestData,
-        options: Options(
-          contentType: Headers.jsonContentType,
-          responseType: ResponseType.bytes,
+      final response = await _dio.post(
+        '/api/upload',
+        data: FormData.fromMap(fields),
+      );
+      return _asMap(response.data, 'POST /api/upload');
+    } on DioException catch (error) {
+      throw Exception(_describeDioError('POST /api/upload', error));
+    }
+  }
+
+  Future<void> startProcessing(
+    String jobId, {
+    required String targetLanguage,
+    required String voice,
+    required List<String> protectedTerms,
+  }) async {
+    try {
+      await _dio.post(
+        '/api/jobs/$jobId/process',
+        data: {
+          'target_language': targetLanguage,
+          'source_language': 'en',
+          'voice': voice,
+          'protected_terms': protectedTerms,
+        },
+      );
+    } on DioException catch (error) {
+      throw Exception(
+        _describeDioError('POST /api/jobs/$jobId/process', error),
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> getJob(String jobId) async {
+    try {
+      final response = await _dio.get('/api/jobs/$jobId');
+      return _asMap(response.data, 'GET /api/jobs/$jobId');
+    } on DioException catch (error) {
+      throw Exception(_describeDioError('GET /api/jobs/$jobId', error));
+    }
+  }
+
+  Future<void> updateSegment(String jobId, int index, String editedText) async {
+    try {
+      await _dio.put(
+        '/api/jobs/$jobId/segments/$index',
+        data: {'edited_text': editedText},
+      );
+    } on DioException catch (error) {
+      throw Exception(
+        _describeDioError('PUT /api/jobs/$jobId/segments/$index', error),
+      );
+    }
+  }
+
+  Future<void> approveSegment(String jobId, int index) async {
+    try {
+      await _dio.post('/api/jobs/$jobId/segments/$index/approve');
+    } on DioException catch (error) {
+      throw Exception(
+        _describeDioError(
+          'POST /api/jobs/$jobId/segments/$index/approve',
+          error,
         ),
       );
-
-      final body = response.data ?? const <int>[];
-      if (body.isEmpty) {
-        throw Exception('The speech endpoint returned no audio data.');
-      }
-
-      final audioId = response.headers.value('x-audio-id');
-
-      // Return everything the UI needs right away so it never calls /results/ or /jobs/
-      return {
-        'audio_id': audioId,
-        'raw_audio': body,
-        'content_type': 'audio/wav',
-        'status': 'completed',
-      };
-    } on DioException catch (error) {
-      throw Exception(_describeDioError('POST /generate-speech', error));
     }
   }
 
-  // 5. GET /jobs/{job_id} (Handled gracefully for non-speech jobs or mocked if called)
-  Future<Map<String, dynamic>> getSpeechJob(String jobId) async {
-    // Since /generate-speech is synchronous, if this is called for speech,
-    // we can return a completed status immediately.
-    return {'status': 'completed', 'audio_id': jobId};
+  Future<void> approveAllSegments(String jobId) async {
+    try {
+      await _dio.post('/api/jobs/$jobId/approve-all');
+    } on DioException catch (error) {
+      throw Exception(
+        _describeDioError('POST /api/jobs/$jobId/approve-all', error),
+      );
+    }
   }
 
-  // 6. Retrieve generated audio (Handles synchronous results or fetches if stored)
-  Future<Map<String, dynamic>> downloadSpeechResult(
+  Future<void> startTts(
     String jobId, {
-    String? audioId,
+    required double speed,
+    required String voice,
   }) async {
-    // Since /generate-speech is synchronous and returns the audio directly,
-    // if the UI attempts to fetch via /speech-results/{job_id}, we can map it
-    // to check the general results or handle it gracefully.
-    // Alternatively, if you have a /results/{job_id} endpoint for rendered videos,
-    // ensure audio caching handles the bytes directly from the initial POST /generate-speech response.
+    try {
+      await _dio.post(
+        '/api/jobs/$jobId/tts',
+        data: {'speed': speed, 'voice': voice},
+      );
+    } on DioException catch (error) {
+      throw Exception(_describeDioError('POST /api/jobs/$jobId/tts', error));
+    }
+  }
 
+  Future<void> startRender(
+    String jobId, {
+    required bool subtitles,
+    required String subtitlePosition,
+    required bool background,
+    required bool mask,
+    required double maskHeight,
+  }) async {
+    try {
+      await _dio.post(
+        '/api/jobs/$jobId/render',
+        data: {
+          'subtitles': subtitles,
+          'sub_position': subtitlePosition,
+          'background': background,
+          'mask': mask,
+          'mask_height': maskHeight,
+        },
+      );
+    } on DioException catch (error) {
+      throw Exception(_describeDioError('POST /api/jobs/$jobId/render', error));
+    }
+  }
+
+  Future<List<int>> downloadJobMedia(String jobId, String mediaType) async {
+    if (!const {'video', 'audio', 'srt', 'source'}.contains(mediaType)) {
+      throw ArgumentError.value(mediaType, 'mediaType');
+    }
     try {
       final response = await _dio.get<List<int>>(
-        '/results/$jobId', // Or use the results endpoint if it's a video render job
+        '/api/jobs/$jobId/$mediaType',
         options: Options(responseType: ResponseType.bytes),
       );
-      final body = response.data ?? const <int>[];
-      return {
-        'audio_id': response.headers.value('x-audio-id') ?? audioId ?? jobId,
-        'raw_audio': body,
-        'content_type': response.headers.value('content-type') ?? 'audio/wav',
-      };
+      final bytes = response.data ?? const <int>[];
+      if (bytes.isEmpty)
+        throw Exception('The server returned an empty $mediaType file.');
+      return bytes;
     } on DioException catch (error) {
-      throw Exception(_describeDioError('GET /results/$jobId', error));
-    }
-  }
-
-  // 7. POST /localize
-  Future<String> localizeVideo(RenderRequest request) async {
-    final payload = request.toJson();
-    payload['language'] = _apiLanguage(request.language);
-    if (kDebugMode) {
-      debugPrint('POST /localize payload: ${jsonEncode(payload)}');
-    }
-    try {
-      final response = await _dio.post('/localize', data: payload);
-      return response.data['job_id'] ?? '';
-    } on DioException catch (error) {
-      throw Exception(_describeDioError('POST /localize', error));
-    }
-  }
-
-  // 8. GET /jobs/{job_id} (Render job status)
-  Future<String> checkJobStatus(String jobId) async {
-    try {
-      final response = await _dio.get('/jobs/$jobId');
-      return response.data['status'] ?? 'pending';
-    } on DioException catch (error) {
-      throw Exception(_describeDioError('GET /jobs/$jobId', error));
-    }
-  }
-
-  // 9. GET /results/{job_id} (Download Result Video)
-  Future<Response> downloadResult(String jobId) async {
-    try {
-      return await _dio.get(
-        '/results/$jobId',
-        options: Options(responseType: ResponseType.bytes),
+      throw Exception(
+        _describeDioError('GET /api/jobs/$jobId/$mediaType', error),
       );
-    } on DioException catch (error) {
-      throw Exception(_describeDioError('GET /results/$jobId', error));
     }
   }
 }

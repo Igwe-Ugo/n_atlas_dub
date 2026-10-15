@@ -46,6 +46,11 @@ class WorkflowScreen extends StatelessWidget {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.info_outline, color: Colors.black87),
+            tooltip: 'About N-ATLaS Dub',
+            onPressed: () => Navigator.pushNamed(context, '/about'),
+          ),
+          IconButton(
             icon: const Icon(Icons.settings_outlined, color: Colors.black87),
             tooltip: 'API settings',
             onPressed: () => Navigator.pushNamed(context, '/settings'),
@@ -69,13 +74,13 @@ class WorkflowScreen extends StatelessWidget {
                     WorkflowStepTile(
                       icon: Icons.play_circle_fill,
                       title: 'Upload Video',
-                      subtitle: 'Supported: MP4, MOV, AVI (Max 200MB)',
+                      subtitle: 'MP4 videos up to 100 MB and 90 seconds',
                       iconColor: Color.fromARGB(255, 1, 125, 225),
                     ),
                     WorkflowStepTile(
                       icon: Icons.translate,
                       title: 'Select Target Language',
-                      subtitle: 'Yoruba, Igbo, Hausa & Nigerian English Accent',
+                      subtitle: 'Yoruba, Igbo or Hausa with Nigerian voices',
                       iconColor: Color.fromARGB(255, 1, 121, 85),
                     ),
                     WorkflowStepTile(

@@ -10,3 +10,4 @@ export 'preview_video_screen.dart';
 export 'generate_voice_screen.dart';
 export 'export_video_screen.dart';
 export 'settings_screen.dart';
+export 'about_screen.dart';

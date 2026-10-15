@@ -18,6 +18,7 @@ class PreviewVideoScreen extends ConsumerStatefulWidget {
 class _PreviewVideoScreenState extends ConsumerState<PreviewVideoScreen> {
   bool showSubtitles = true;
   bool backgroundMusic = false;
+  String subtitlePosition = 'bottom';
   VideoPlayerController? _videoController;
   bool _isInitialized = false;
   bool _generationStarted = false;
@@ -91,9 +92,10 @@ class _PreviewVideoScreenState extends ConsumerState<PreviewVideoScreen> {
     }
 
     final notifier = ref.read(localizationProvider.notifier);
-    await notifier.startLocalizationJob(
-      widget.targetLanguage,
-      state.translation ?? '',
+    await notifier.renderVideo(
+      subtitles: showSubtitles,
+      subtitlePosition: subtitlePosition,
+      background: backgroundMusic,
     );
     if (!mounted) return;
 
@@ -103,7 +105,7 @@ class _PreviewVideoScreenState extends ConsumerState<PreviewVideoScreen> {
       _generationStarted = false;
       return;
     }
-    if (jobState.jobId == null || jobState.jobStatus != 'completed') {
+    if (jobState.jobId == null || jobState.stage != 'rendered') {
       setState(() {
         _videoError = 'Video rendering did not complete. Please try again.';
       });
@@ -111,9 +113,8 @@ class _PreviewVideoScreenState extends ConsumerState<PreviewVideoScreen> {
       return;
     }
 
-    final previewFile = await notifier.prepareFinalResultPreview();
-    if (!mounted) return;
-    if (previewFile == null) {
+    final previewPath = ref.read(localizationProvider).previewVideoPath;
+    if (previewPath == null || !await File(previewPath).exists()) {
       final previewState = ref.read(localizationProvider);
       setState(() {
         _videoError =
@@ -123,7 +124,7 @@ class _PreviewVideoScreenState extends ConsumerState<PreviewVideoScreen> {
       _generationStarted = false;
       return;
     }
-    await _loadVideo(previewFile.path);
+    await _loadVideo(previewPath);
   }
 
   Future<void> _openExportScreen() async {
@@ -154,7 +155,9 @@ class _PreviewVideoScreenState extends ConsumerState<PreviewVideoScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(
-          hasGeneratedVideo ? 'Discard generated video?' : 'Remove selected video?',
+          hasGeneratedVideo
+              ? 'Discard generated video?'
+              : 'Remove selected video?',
         ),
         content: Text(
           hasGeneratedVideo
@@ -244,7 +247,10 @@ class _PreviewVideoScreenState extends ConsumerState<PreviewVideoScreen> {
                 child: Text(
                   'Review your generated video with voiceover and subtitles.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 14, color: Color(0xFF64748B)),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF64748B),
+                  ),
                 ),
               ),
               const SizedBox(height: 20),
@@ -308,7 +314,7 @@ class _PreviewVideoScreenState extends ConsumerState<PreviewVideoScreen> {
                                   ),
                                   color: Colors.black.withOpacity(0.7),
                                   child: Text(
-                                    state.translation ?? '',
+                                    state.translation,
                                     textAlign: TextAlign.center,
                                     style: const TextStyle(
                                       color: Colors.white,
@@ -350,6 +356,25 @@ class _PreviewVideoScreenState extends ConsumerState<PreviewVideoScreen> {
                 showSubtitles,
                 (v) => setState(() => showSubtitles = v),
               ),
+              if (showSubtitles)
+                DropdownButtonFormField<String>(
+                  value: subtitlePosition,
+                  decoration: const InputDecoration(
+                    labelText: 'Subtitle position',
+                    isDense: true,
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'bottom', child: Text('Bottom')),
+                    DropdownMenuItem(value: 'top', child: Text('Top')),
+                  ],
+                  onChanged: state.isLoading
+                      ? null
+                      : (value) {
+                          if (value != null) {
+                            setState(() => subtitlePosition = value);
+                          }
+                        },
+                ),
               const Divider(height: 1),
               _buildToggleRow(
                 Icons.music_note,

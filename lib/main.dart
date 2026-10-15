@@ -25,6 +25,7 @@ class NAtlasApp extends StatelessWidget {
         '/englishTranscript': (context) => const EnglishTranscriptionScreen(),
         '/completion': (context) => const CompletionCelebrationScreen(),
         '/settings': (context) => const SettingsScreen(),
+        '/about': (context) => const AboutScreen(),
         '/exportVideo': (context) => ExportVideoScreen(
           targetLanguage:
               ModalRoute.of(context)?.settings.arguments as String? ?? 'Yoruba',

@@ -1,10 +1,8 @@
 import 'dart:io';
 
-import 'package:ffmpeg_kit_flutter_new_video/ffmpeg_kit.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter_video_trimmer/flutter_video_trimmer.dart';
 
 import '../network/network.dart';
 
@@ -16,130 +14,52 @@ class UploadVideoScreen extends ConsumerStatefulWidget {
 }
 
 class _UploadVideoScreenState extends ConsumerState<UploadVideoScreen> {
-  static const _maximumVideoDuration = Duration(minutes: 1);
-  bool _isPreparingVideo = false;
+  static const _maximumVideoSize = 100 * 1024 * 1024;
+  bool _consentAccepted = false;
 
-  Future<void> _pickAndUploadVideo(BuildContext context) async {
-    final result = await FilePicker.pickFiles(type: FileType.video);
-
-    if (!mounted || !context.mounted) return;
-    if (result.isEmpty) return;
-
-    final filePath = result.single.path;
-    if (filePath == null) return;
-
-    final File file = File(filePath);
-    File fileToUpload;
-    var wasTrimmed = false;
-
-    setState(() => _isPreparingVideo = true);
-    try {
-      final preparedFile = await _trimIfLongerThanOneMinute(file);
-      fileToUpload = preparedFile.file;
-      wasTrimmed = preparedFile.wasTrimmed;
-    } catch (error) {
-      if (context.mounted) {
-        print('Could not prepare video: $error');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not prepare video: $error')),
-        );
-      }
+  Future<void> _pickAndUploadVideo() async {
+    if (!_consentAccepted) {
+      _showMessage('Please agree to video processing before uploading.');
       return;
-    } finally {
-      if (mounted) setState(() => _isPreparingVideo = false);
+    }
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['mp4'],
+    );
+    if (!mounted || result.isEmpty) return;
+    final path = result.single.path;
+    if (path == null) return;
+    final file = File(path);
+    if (await file.length() > _maximumVideoSize) {
+      _showMessage('Choose an MP4 file smaller than 100 MB.');
+      return;
     }
 
-    if (!context.mounted) return;
-    // Starting this upload clears the previous selection and its workflow data.
-    await ref.read(localizationProvider.notifier).uploadVideo(fileToUpload);
-
-    if (!context.mounted) return;
-
-    // Check state for errors
+    await ref
+        .read(localizationProvider.notifier)
+        .uploadVideo(file, testerName: '', testerEmail: '');
+    if (!mounted) return;
     final state = ref.read(localizationProvider);
     if (state.error != null) {
+      _showMessage('Upload failed: ${state.error}');
       print('Upload failed: ${state.error}');
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Upload failed: ${state.error}')));
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            wasTrimmed
-                ? 'Video trimmed to one minute and uploaded successfully!'
-                : 'Video uploaded successfully!',
-          ),
-        ),
-      );
+      final message = state.trimmedFrom != null
+          ? 'Video uploaded and trimmed to ${state.uploadedDuration?.toStringAsFixed(0) ?? '90'} seconds.'
+          : 'Video uploaded successfully.';
+      _showMessage(message);
     }
   }
 
-  Future<({File file, bool wasTrimmed})> _trimIfLongerThanOneMinute(
-    File file,
-  ) async {
-    final trimmer = Trimmer(
-      runCommand: (command) async {
-        final audioTrimCommand =
-            '-af "atrim=duration=${_maximumVideoDuration.inSeconds},'
-            'asetpts=PTS-STARTPTS" -c:a aac -b:a 128k';
-        if (!command.contains('-c:a copy')) {
-          throw Exception('Could not apply the audio duration limit.');
-        }
-        final commandWithTrimmedAudio = command.replaceFirst(
-          '-c:a copy',
-          audioTrimCommand,
-        );
-        final session = await FFmpegKit.execute(commandWithTrimmedAudio);
-        final returnCode = await session.getReturnCode();
-        if (returnCode?.getValue() != 0) {
-          final output = await session.getOutput();
-          throw Exception(output ?? 'FFmpeg could not trim this video.');
-        }
-      },
-    );
-
-    try {
-      await trimmer.loadVideo(videoFile: file);
-      final duration = trimmer.videoPlayerController?.value.duration;
-      if (duration == null || duration == Duration.zero) {
-        throw Exception('Could not read the video duration.');
-      }
-      if (duration <= _maximumVideoDuration) {
-        return (file: file, wasTrimmed: false);
-      }
-
-      String? trimmedPath;
-      await trimmer.saveTrimmedVideo(
-        startValue: 0,
-        endValue: _maximumVideoDuration.inMilliseconds.toDouble(),
-        applyVideoEncoding: true,
-        storageDir: StorageDir.temporaryDirectory,
-        videoFolderName: 'natlas_trimmed_videos',
-        // The package's default filename includes a formatted time with ':';
-        // Windows rejects colons in filenames, so always provide a safe name.
-        videoFileName: 'natlas_trimmed_${DateTime.now().millisecondsSinceEpoch}',
-        onSave: (path) => trimmedPath = path,
-      );
-
-      if (trimmedPath == null) {
-        throw Exception('The trimmer did not return an output file.');
-      }
-      final trimmedFile = File(trimmedPath!);
-      if (!await trimmedFile.exists() || await trimmedFile.length() == 0) {
-        throw Exception('The trimmed video file is empty or missing.');
-      }
-      return (file: trimmedFile, wasTrimmed: true);
-    } finally {
-      await trimmer.videoPlayerController?.dispose();
-      trimmer.dispose();
-    }
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(localizationProvider);
-
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -161,7 +81,7 @@ class _UploadVideoScreenState extends ConsumerState<UploadVideoScreen> {
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -178,18 +98,28 @@ class _UploadVideoScreenState extends ConsumerState<UploadVideoScreen> {
               const SizedBox(height: 8),
               const Center(
                 child: Text(
-                  'Upload your English marketing video\nto get started.',
+                  'Choose an English MP4 video to dub.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
                 ),
               ),
-              const SizedBox(height: 28),
-
-              // Upload Container Card
-              GestureDetector(
-                onTap: state.isLoading || _isPreparingVideo
+              const SizedBox(height: 12),
+              CheckboxListTile(
+                value: _consentAccepted,
+                onChanged: state.isLoading
                     ? null
-                    : () => _pickAndUploadVideo(context),
+                    : (value) =>
+                          setState(() => _consentAccepted = value ?? false),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  'I agree to have this video processed by N-ATLaS.',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF334155)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: state.isLoading ? null : _pickAndUploadVideo,
                 child: Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(
@@ -209,7 +139,7 @@ class _UploadVideoScreenState extends ConsumerState<UploadVideoScreen> {
                           color: const Color(0xFF2C248A).withOpacity(0.08),
                           shape: BoxShape.circle,
                         ),
-                        child: state.isLoading || _isPreparingVideo
+                        child: state.isLoading
                             ? const CircularProgressIndicator(
                                 color: Color(0xFF2C248A),
                               )
@@ -221,20 +151,19 @@ class _UploadVideoScreenState extends ConsumerState<UploadVideoScreen> {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        _isPreparingVideo
-                            ? 'Preparing video (maximum 1 minute)...'
-                            : state.isLoading
-                            ? 'Uploading to N-ATLAS server...'
-                            : 'Tap to upload video',
+                        state.isLoading
+                            ? state.statusMessage
+                            : 'Tap to choose a video',
+                        textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 15,
                           color: Color(0xFF1E1B4B),
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
                       const Text(
-                        'Supported: MP4, MOV, AVI (Max 200MB)',
+                        'MP4 · maximum 100 MB · up to 90 seconds',
                         style: TextStyle(
                           color: Color(0xFF94A3B8),
                           fontSize: 12,
@@ -244,10 +173,7 @@ class _UploadVideoScreenState extends ConsumerState<UploadVideoScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 20),
-
-              // Selected Video Card Preview
               if (state.selectedFile != null)
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -258,53 +184,22 @@ class _UploadVideoScreenState extends ConsumerState<UploadVideoScreen> {
                   ),
                   child: Row(
                     children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2C248A).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.video_file,
-                          color: Color(0xFF2C248A),
-                        ),
-                      ),
+                      const Icon(Icons.video_file, color: Color(0xFF2C248A)),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              state.selectedFile!.path.split('/').last,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                                color: Color(0xFF1E1B4B),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Video ID: ${state.videoId?.substring(0, 8)}...',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF10B981),
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          '${state.selectedFile!.path.split(Platform.pathSeparator).last}\n'
+                          'Job: ${state.jobId}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
                   ),
                 ),
-
               const Spacer(),
-
-              // Continue CTA Button
               ElevatedButton(
-                onPressed: state.videoId != null
+                onPressed: state.jobId != null && !state.isLoading
                     ? () => Navigator.pushNamed(context, '/selectLanguage')
                     : null,
                 style: ElevatedButton.styleFrom(
@@ -314,20 +209,13 @@ class _UploadVideoScreenState extends ConsumerState<UploadVideoScreen> {
                   ),
                   minimumSize: const Size(double.infinity, 56),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    Text(
-                      'Continue',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    Icon(Icons.arrow_forward, size: 20, color: Colors.white),
-                  ],
+                child: const Text(
+                  'Continue',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ],

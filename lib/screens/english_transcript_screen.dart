@@ -188,7 +188,9 @@ class _EnglishTranscriptionScreenState extends ConsumerState<EnglishTranscriptio
                           : Expanded(
                               child: SingleChildScrollView(
                                 child: Text(
-                                  state.transcription ?? 'No transcription available yet.',
+                                  state.transcription.isEmpty
+                                      ? 'No transcription available yet.'
+                                      : state.transcription,
                                   style: const TextStyle(fontSize: 14, color: Color(0xFF334155), height: 1.5),
                                 ),
                               ),
