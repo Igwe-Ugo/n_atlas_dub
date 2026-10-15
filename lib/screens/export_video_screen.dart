@@ -15,33 +15,6 @@ class ExportVideoScreen extends ConsumerStatefulWidget {
 }
 
 class _ExportVideoScreenState extends ConsumerState<ExportVideoScreen> {
-  Future<void> _deletePreview() async {
-    final shouldDelete = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete localized preview?'),
-        content: const Text(
-          'This removes the downloaded preview from this device. '
-          'You can return to rendering to create another video.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-    if (shouldDelete != true || !mounted) return;
-
-    if (!mounted) return;
-    Navigator.pop(context, true);
-  }
-
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(localizationProvider);
